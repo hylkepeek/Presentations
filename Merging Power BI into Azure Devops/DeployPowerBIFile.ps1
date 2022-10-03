@@ -7,10 +7,11 @@
 
 #Fill in these values before starting the scirpt
     $tenantId = "[your tenant id]"
-    $appId = "[app id of your service principa]"
-    $appPassword = "[password of your service principa]"
+    $appId = "[app id of your service principal]"
+    $appPassword = "[password of your service principal]"
     $workspaceDev = "[development workspace name]"
     $workspaceProd = "[production workspace name]"
+    $DatamodelFilename = "[Power BI filename of the data model]"
 
 
 #You need this module!!
@@ -41,7 +42,7 @@
     Connect-PowerBIServiceAccount -ServicePrincipal -Credential $credential -TenantId $tenantId
     Write-Host "End Login"
 
-#Get workspace id based on PBIX-filename
+#Get workspace id based on Workspace name
     Write-Host "Start - Get workspace info"
     $workspaceObject = ( Get-PowerBIWorkspace -Name $DeployToWorkspace )
     $groupid=$workspaceObject.id
@@ -52,6 +53,25 @@
     $result = New-PowerBIReport -Path $pbixPath -Name $reportFileToPublish -Workspace $workspaceObject -ConflictAction CreateOrOverwrite
     $reportid = $result.id
     Write-Host "End Publish report: " $reportid
+
+#update data source settings when deploying to production
+if ($stageOrder -eq "1" -and $reportFileToPublish -eq $DatamodelFilename){
+
+    Write-Host "Start Update data source on production"
+
+#Take over dataset to have full control over the dataset
+    $TakeOverUrl = "groups/$groupid/datasets/$datasetId/Default.TakeOver"
+    Invoke-PowerBIRestMethod -Url $TakeOverUrl -Method Post
+
+#Update parameters
+    $ParametersUrl = "groups/$groupid/datasets/$datasetId/Default.UpdateParameters"
+    $parameterName = "[name of the parameter]"
+    $newParameterValue = "[new value of the parameter]"
+    $Body = "{updateDetails:[{name:'$parameterName', newValue:'$newParameterValue'}]}"
+    Invoke-PowerBIRestMethod -Url $ParametersUrl -Method Post -Body $Body `
+                                -ContentType 'application/json'
+    Write-Host "End Update data source on production"
+}
 
 #Refresh dataset
     $dataset = Invoke-PowerBIRestMethod -Url "groups/$groupid/datasets" -Method Get | ConvertFrom-Json
@@ -73,25 +93,6 @@
 
       Write-Host "Dataset refresh succeeded"
     }
-
-#update data source settings when deploying to production
-if ($stageOrder -eq "1" -and $reportFileToPublish -eq "Datamodel Sales.pbix"){
-
-    Write-Host "Start Update data source on production"
-
-#Take over dataset to have full control over the dataset
-    $TakeOverUrl = "groups/$groupid/datasets/$datasetId/Default.TakeOver"
-    Invoke-PowerBIRestMethod -Url $TakeOverUrl -Method Post
-
-#Update parameters
-    $ParametersUrl = "groups/$groupid/datasets/$datasetId/Default.UpdateParameters"
-    $parameterName = "[name of the parameter]"
-    $newParameterValue = "[new value of the parameter]"
-    $Body = "{updateDetails:[{name:'$parameterName', newValue:'$newParameterValue'}]}"
-    Invoke-PowerBIRestMethod -Url $ParametersUrl -Method Post -Body $Body `
-                                -ContentType 'application/json'
-    Write-Host "End Update data source on production"
-}
 
 #Distconnect from Power BI
     Disconnect-PowerBIServiceAccount
